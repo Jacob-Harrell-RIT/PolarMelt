@@ -41,17 +41,30 @@ void setup() {
 int count=0;
 int failsafe=0;
 int      head  = 0, tail = -10; // Index of first 'on' and 'off' pixels
-uint32_t color = 0xFF0000;   
+uint32_t color = 0xFF0000;  
+  
 void loop() {
   if(x8r.read(&channels[0], &failSafe, &lostFrames)){
-     failsafe=0;
+    Serial.println(failsafe);
+     if (failSafe){
+        //out1=1000+map(channels[2],minthrottle,maxthrottle,430,1000);
+        out1=1430;
+        out=1430;
+        myservo1.writeMicroseconds(out1);
+        myservo.writeMicroseconds(out);
+        Serial.print("1err:");
+        Serial.println(out);
+        Serial.print("2err:");
+        Serial.println(out1);
+     }
+     else{
     //Serial.print("sensor0 = ");
     //Serial.println(channels[2]);
     //out=1000+map(channels[2],minthrottle,maxthrottle,430,1000);
     //note that the motors spin in opposite directions in this example
     out=map(channels[2],minthrottle,maxthrottle,1430,2000);
     //out1=1000+map(channels[2],minthrottle,maxthrottle,430,1000);
-    out1=map(channels[2],minthrottle,maxthrottle,1430,1000);
+    out1=map(channels[2],minthrottle,maxthrottle,1430,998);
     Serial.print("1:");
     Serial.println(out);
     Serial.print("2:");
@@ -70,13 +83,7 @@ void loop() {
       color = 0xFF0000;             //   Yes, reset to red
   }
   if(++tail >= NUMPIXELS) tail = 0;
+     }
   }
-  else if(failsafe>=2000){
-  myservo.writeMicroseconds(1430);
-  myservo1.writeMicroseconds(1430);
-  failsafe=0;
-  }
-  else{
-    failsafe++;
-  }
+
 }
