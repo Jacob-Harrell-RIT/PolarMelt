@@ -1,0 +1,98 @@
+#include "SBUS.h"
+#include <Adafruit_DotStar.h>
+#include <Servo.h>
+#include <SPI.h>  
+#define NUMPIXELS 19
+#define DATAPIN    4//17//5//17
+#define CLOCKPIN   5//16//4//16
+#define DATAPIN1  17
+#define CLOCKPIN1 16
+Adafruit_DotStar strip = Adafruit_DotStar(
+  NUMPIXELS, DATAPIN, CLOCKPIN, DOTSTAR_BRG);
+Adafruit_DotStar  strip2=Adafruit_DotStar(
+  NUMPIXELS, DATAPIN1, CLOCKPIN1, DOTSTAR_BRG);
+  
+const float ACC_MAX = 4095.0f;
+const float G_MAX   = 250.0f;    // 250g
+const float G       = 980.665f;  // 980.665cm/s^2
+const float ACC_RADIUS = 2.5f;   // 2.5cm
+
+const int LED_OFF = 0;
+const int LED_ON = 0x00FFFF;
+const int LED_ERR = 0xFF0000;
+
+IntervalTimer accelTimer;
+volatile float heading;
+volatile bool LedStatus=0;
+volatile float AccelAvg;
+elapsedMillis dt;  
+int      head  = 0, tail = -10;
+uint32_t color = 0xFF0000; 
+
+void setup() {
+  // put your setup code here, to run once:
+  Serial.begin(115200);
+  analogReadResolution(12);
+  strip.begin(); // Initialize pins for output
+  strip2.begin();
+  strip2.show();
+  strip.show();  // Turn all LEDs off ASAP
+    dt = 0;
+  // Begin the interrupt timer to read on an interval
+  accelTimer.begin(readAccel,1250);
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  //lightLEDs(0x000000);
+  //delay(100);
+  
+  if(LedStatus){
+    lightLEDs(0x0000FF);
+    Serial.println(AccelAvg);
+  }
+  else{
+    lightLEDs(0x000000);
+  }
+  
+}
+
+void lightLEDs(int color) {
+  // For each pixel
+  for (int i = 0; i < NUMPIXELS; i++) {
+    // set the color
+    strip.setPixelColor(i,color);
+    strip2.setPixelColor(i,color);
+  } // for each pixel
+  // Show the results
+  strip.show();
+  strip2.show();
+} // lightLEDs()
+
+void readAccel() {
+    LedStatus=!LedStatus;
+    AccelAvg=(analogRead(A7) + analogRead(A6))/2.0f;
+  /*
+  // Read the accelerometers, averaging between the two
+  float accel = (analogRead(A7) + analogRead(A6))/2.0f;
+  // Adjust the reading, converting to G's (Shift to -2047.5 to 2047.5, then scale by 250g/2047.5)
+  accel = (accel - (ACC_MAX/2.0f))*(2.0f*G_MAX/ACC_MAX);
+  // Convert to cm/s^2
+  accel = accel*G;
+  // dtheta = dt*sqrt(ac/r)
+  float dtheta = (dt/1000.0f)*sqrt(accel/ACC_RADIUS);
+  // Reset the time since last reading
+  dt = 0;
+  // Add to the current heading, wrapping around the unit circle
+  heading = heading + dtheta;
+  if (heading >= 2*PI) heading -= 2*PI;
+  // Check "forward" bounds to turn LED on/off
+  if (heading > PI/4.0f && heading < 3*PI/4.0f) {
+    // Turn on the LEDs
+    lightLEDs(LED_ON);
+  } else {
+    // Turn off the LEDs
+    lightLEDs(LED_OFF);
+  }
+  */
+} // readAccel()
