@@ -307,8 +307,8 @@ void loop() {
             
       //note that the motors spin in opposite directions in this example
       //out=getMotorPPM(0,channels[2],channels[1],channels[3]);//map(channels[2],minthrottle,maxthrottle,1430,2000);
-      int LR=map(channels[1],minthrottle,maxthrottle,430,-430);//1000 full left 2000 full right
-      int UPdown=map(channels[3],minthrottle,maxthrottle,215,-215);//1000 full down 2000 full right
+      int LR=map(channels[3],minthrottle,maxthrottle,430,-430);//1000 full left 2000 full right//ch3
+      int UPdown=map(channels[1],minthrottle,maxthrottle,215,-215);//1000 full down 2000 full right//ch1
       
       //1430 middle
       // 
