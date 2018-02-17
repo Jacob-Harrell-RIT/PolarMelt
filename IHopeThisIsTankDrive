@@ -1,0 +1,368 @@
+#include "SBUS.h"
+#include <Adafruit_DotStar.h>
+#include <Servo.h>
+#include <SPI.h> 
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_LSM303.h> 
+
+// Dotstar Constants
+const int NUMPIXELS = 19;
+const int DATAPIN = 4;
+const int CLOCKPIN = 5;
+const int DATAPIN1 = 17;
+const int CLOCKPIN1 = 16;
+
+// Color Constants
+const int LED_OFF = 0x000000;
+const int LED_ON = 0x000066;
+const int LED_ERR = 0x006600;
+const int LED_STRT = 0x660000;
+const int LED_NEUT = 0x448800;
+const int LED_CONFIG = 0x009933;
+const int LED_CONFIRM = 0x660066;
+
+// Math Constants
+const float ACCEL_RADIUS = 2.5; //cm
+const float ADC_TO_THETA = 7.13377835; // Magic Number to convert from unitless ADC to unitless rotation
+const int DT = 1.25; //ms
+
+// Trim
+float _heading_trim = 1;         // The RAM stored trim
+volatile float heading_trim = 1; // The trim actually used for calculation
+int _arrowoff = 336;
+int arrowoff = 336;
+int _forward = 1024;
+int forward = 1024;
+
+// Translation Profile
+// const int[] THREE_STEP_TRANSLATION = {0.9,0.5,0.1};
+
+// Reciever
+SBUS x8r(Serial2);
+
+// Three Axis Accelerometer
+Adafruit_LSM303 lsm;
+
+// Dotstar Strips
+Adafruit_DotStar strip = Adafruit_DotStar(
+  NUMPIXELS, DATAPIN, CLOCKPIN, DOTSTAR_BRG);
+Adafruit_DotStar  strip2 =Adafruit_DotStar(
+  NUMPIXELS, DATAPIN1, CLOCKPIN1, DOTSTAR_BRG);
+
+int forward_flg = 0;
+
+volatile int heading;
+
+int out=0;
+int out1=0;
+int maxthrottle=1811;
+int minthrottle=172;
+int dacmax=4096;
+int dacmin=0;
+
+Servo myservo; 
+Servo myservo1;
+
+uint16_t channels[16];
+uint8_t failSafe;
+uint16_t lostFrames = 0;
+
+int count=0;
+int failsafe=0;
+
+// Interrupt to calculate acceleration
+IntervalTimer accTimer;
+
+// State Machine
+// 0  = Startup
+// 1  = On but Stationary
+// 2  = On and Spinning
+// -1 = Signal Lost
+// 3  = Config
+short state_machine = 0;
+
+// Trim
+int shift_trim = 0;
+float radius_trim = 0;
+float magic_trim = 0;
+float time_trim = 0;
+
+int light_led;
+
+// Acceleration calculations
+volatile int acc0;
+volatile int acc1;
+volatile float acc_avg;
+volatile float theta_dot;
+
+// PPM Calculations
+int orientation;
+int max_PPM;
+int mid_PPM;
+int min_PPM;
+int t_vert;
+int t_hori;
+int t_int;
+int t_dir;
+
+void setup() {
+  // Begin the serial output
+  Serial.begin(115200);
+  // Begin the reciever
+  x8r.begin();
+  // Begin the three-axis accelerometer
+  lsm.begin();
+  // Initialize the motors
+  myservo.attach(23,1000,2000);
+  myservo1.attach(22,1000,2000);
+  myservo.writeMicroseconds(1430);
+  myservo1.writeMicroseconds(1430);
+  // Initialize the analog read granularity
+  analogReadResolution(12);
+  // Setup the heading
+  heading = 1024;
+  // Initialize pins for output
+  strip.begin();
+  strip2.begin();
+  // Turn all LEDs off ASAP
+  strip.show();
+  strip2.show();
+  // Then turn them into the LED_NEUT color
+  lightLEDs(LED_STRT);
+  state_machine = 0;
+  // Start the timer
+  accTimer.begin(readAccel,1250);
+}
+
+void lightLEDs(int color) {
+  // For each pixel
+  for (int i = 0; i < NUMPIXELS; i++) {
+    // set the color
+    strip.setPixelColor(i,color);
+    strip2.setPixelColor(i,color);
+  } // for each pixel
+  // Show the results
+  strip.show();
+  strip2.show();
+} // lightLEDs()
+
+void readAccel() {
+  // Average the readings
+  acc0 = analogRead(A7);
+  acc1 = analogRead(A6);
+  acc_avg = (acc0 + acc1) / 2;
+  // Shift the average
+  acc_avg -= 2047;
+  // Calculate the Rotational Velocity
+  theta_dot = sqrt(acc_avg/ACCEL_RADIUS);
+  // Add the change in heading
+  heading += (theta_dot * DT * ADC_TO_THETA * heading_trim);
+  // Loop the heading
+  heading = heading % 4096;
+}
+
+int getVerticalOrientation() {
+  if(lsm.accelData.x > 500) {
+    return 1;
+  } else if (lsm.accelData.x < -500) {
+    return -1;
+  } else {
+    return 0;
+  }
+}
+
+int getMotorPPM(int motor, int throttle, int vert_trans, int hori_trans) {
+  
+  // Get the vertical orientation
+  orientation = getVerticalOrientation();
+  // Map the translation throttle
+  t_vert = map(vert_trans,minthrottle,maxthrottle,-1,1);
+  t_hori = map(hori_trans,minthrottle,maxthrottle,-1,1);
+  // Calculate info about the translation
+  t_int = sqrt(t_vert*t_vert + t_hori*t_hori);
+  Serial.print("Translational Intensity: ");
+  Serial.println(t_int);
+  
+  // Determine the throttle direction
+  if(orientation == 1) {
+    max_PPM = map(throttle,minthrottle,maxthrottle,1430,2000);
+  } else if (orientation == -1) {
+    max_PPM = map(throttle,minthrottle,maxthrottle,1430,1000);
+  } else {
+    return 1430;
+  }
+  
+  // Determine the min and max PPMs
+  min_PPM = (1-t_int)*max_PPM;
+
+  // If the translational intensity 
+  if((max_PPM - min_PPM) < 20) {
+    return max_PPM;
+  }
+  
+  mid_PPM = (max_PPM + min_PPM) / 2;
+
+  t_dir = tan(t_vert/t_hori) * 4096 / (2*PI);
+  Serial.print("Translational Direction: ");
+  Serial.println(t_dir);
+
+  // Determine the difference between the heading and the desired translation
+  int dir_diff = (t_dir - heading + 4096) % 4096;
+  
+  if(dir_diff > 3584 || dir_diff <= 512) {
+    if(motor == 0) {
+      return max_PPM;
+    } else {
+      return min_PPM;
+    }
+  } else if (dir_diff > 1536 && dir_diff <= 2560) {
+    if(motor == 0) {
+      return min_PPM;
+    } else {
+      return max_PPM;
+    }
+  } else {
+    return mid_PPM;
+  }
+}
+
+void loop() { 
+  if(x8r.read(&channels[0], &failSafe, &lostFrames)){
+    Serial.println(failSafe);
+    if (failSafe){
+      
+      // If we are not yet in the error state
+      if(state_machine != -1) {
+        // Debug by Lights and set the state
+        lightLEDs(LED_ERR);
+        state_machine = -1;
+      }
+
+      // Turn the Motors Off
+      out1=1430;
+      out=1430;
+      myservo1.writeMicroseconds(out1);
+      myservo.writeMicroseconds(out);
+
+      // Debug
+      Serial.print("1err:");
+      Serial.println(out);
+      Serial.print("2err:");
+      Serial.println(out1);
+      
+    } else {
+
+      // Check if we are real_time configing
+      if(channels[5] > minthrottle) {
+        
+        // Set the state and debug the lights
+        if(state_machine != 3) {
+          state_machine = 3;
+          lightLEDs(LED_CONFIG);
+          light_led = LED_CONFIG;
+        }
+        
+        // Set the heading_trim
+        heading_trim = map(channels[6],minthrottle,maxthrottle,0,2);
+        arrowoff = floor(map(channels[7],minthrottle,maxthrottle,113,1024));
+        
+        // If we are storing the configuration
+        if (channels[4] > minthrottle) {
+          // Debug the LEDs
+          lightLEDs(LED_CONFIRM);
+          // Store the current heading trim configuration
+          _heading_trim = heading_trim;
+          _arrowoff = arrowoff;
+        }
+        
+      } else {
+
+        // Check the throttle level to see if we should be spinning or not
+        if(channels[2] > minthrottle + 2) {
+          // If we aren't already spinning, but also not in config
+          if(state_machine != 2) {
+            // We should be spinning
+            light_led = LED_ON;
+            lightLEDs(LED_ON);
+            state_machine = 2;
+          }
+        } else {
+          // We should not be spinning
+          if (state_machine != 1) {
+            // Set the state and debug the lights
+            state_machine = 1;
+            lightLEDs(LED_NEUT);
+          }
+        }
+
+        // Trims are the stored trims
+        heading_trim = _heading_trim;
+        arrowoff = _arrowoff;
+        
+      } // Config?
+
+      // Shift the POV arrow by manually altering the guesstimated heading
+      heading += map(channels[0],minthrottle,maxthrottle,-200,200);
+            
+      //note that the motors spin in opposite directions in this example
+      //out=getMotorPPM(0,channels[2],channels[1],channels[3]);//map(channels[2],minthrottle,maxthrottle,1430,2000);
+      int LR=map(channels[1],minthrottle,maxthrottle,-430,430);//1000 full left 2000 full right
+      int UPdown=map(channels[3],minthrottle,maxthrottle,430,-430);//1000 full down 2000 full right
+      
+      //1430 middle
+      // 
+      int Do=UPdown+LR ; 
+      int Do1=-UPdown+LR;
+      if(abs(Do)>430){
+        if(Do>0){
+          Do=430;
+        }
+        else{
+          Do=-430;
+        }
+      }
+      else if(abs(Do1)>430){
+        if(Do1>0){
+          Do1=430;
+        }
+        else{
+          Do1=-430;
+        }
+      }
+      
+      out=1430+Do;  
+      //out1=1000+map(channels[2],minthrottle,maxthrottle,430,1000);
+      //out1=getMotorPPM(1,channels[2],channels[1],channels[3]);//map(channels[2],minthrottle,maxthrottle,1430,2000);//1430,998);
+      out1=1430+Do1;
+      
+      // Debug
+      Serial.print("1:");
+      Serial.println(out);
+      Serial.print("2:");
+      Serial.println(out1);
+
+      // Run the Motors
+      myservo.writeMicroseconds(out); 
+      myservo1.writeMicroseconds(out1);
+      
+      // Check the heading to light the LEDs
+      if(heading < forward+arrowoff && heading > forward-arrowoff) {
+        Serial.print("Heading is Forward at: ");
+        Serial.println(heading);
+        if (!forward_flg) {
+         lightLEDs(light_led);
+         forward_flg = 1;
+        } // forward_flg
+      } else {
+        //Serial.print("Heading is NOT Forward at: ");
+        //Serial.println(heading);
+        if (forward_flg) {
+          lightLEDs(LED_OFF);
+          forward_flg = 0;
+        } // forward_flg
+      } // forward?
+      
+    } // failsafe?
+  } // Signal read?
+} // loop()
