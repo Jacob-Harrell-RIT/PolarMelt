@@ -26,7 +26,7 @@ bool Adafruit_LSM303::begin()
   
   // Set Data Output Rate for Magnometer
   write8(LSM303_ADDRESS_MAG, LSM303_REGISTER_MAG_CRA_REG_M, 0x1C);
-  
+  write8(LSM303_ADDRESS_MAG, LSM303_REGISTER_MAG_CRB_REG_M, (byte)LSM303_MAGGAIN_8_1 );
   // Enable the magnetometer
   write8(LSM303_ADDRESS_MAG, LSM303_REGISTER_MAG_MR_REG_M, 0x00);
   
@@ -43,17 +43,17 @@ void Adafruit_LSM303::read()
   Wire.beginTransmission((byte)LSM303_ADDRESS_ACCEL);
   Wire.write(LSM303_REGISTER_ACCEL_OUT_X_L_A | 0x80);
   Wire.endTransmission();
-  Wire.requestFrom((byte)LSM303_ADDRESS_ACCEL, (byte)6);
+  Wire.requestFrom((byte)LSM303_ADDRESS_ACCEL, (byte)2);
 
   // Wait around until enough data is available
-  while (Wire.available() < 6);
+  while (Wire.available() < 2);
 
   uint8_t xlo = Wire.read();
   uint8_t xhi = Wire.read();
-  uint8_t ylo = Wire.read();
-  uint8_t yhi = Wire.read();
-  uint8_t zlo = Wire.read();
-  uint8_t zhi = Wire.read();
+  //uint8_t ylo = Wire.read();
+  //uint8_t yhi = Wire.read();
+  //uint8_t zlo = Wire.read();
+  //uint8_t zhi = Wire.read();
 
   // Shift values to create properly formed integer (low byte first)
   // KTOWN: 12-bit values are left-aligned, no shift needed
@@ -61,28 +61,28 @@ void Adafruit_LSM303::read()
   // accelData.y = (ylo | (yhi << 8)) >> 4;
   // accelData.z = (zlo | (zhi << 8)) >> 4;
   accelData.x = (int16_t)((xhi << 8) | xlo);
-  accelData.y = (int16_t)((yhi << 8) | ylo);
-  accelData.z = (int16_t)((zhi << 8) | zlo);
+  //accelData.y = (int16_t)((yhi << 8) | ylo);
+  //accelData.z = (int16_t)((zhi << 8) | zlo);
   
   // Read the magnetometer
   Wire.beginTransmission((byte)LSM303_ADDRESS_MAG);
-  Wire.write(LSM303_REGISTER_MAG_OUT_X_H_M);
+  Wire.write(LSM303_REGISTER_MAG_OUT_Z_H_M);
   Wire.endTransmission();
-  Wire.requestFrom((byte)LSM303_ADDRESS_MAG, (byte)6);
+  Wire.requestFrom((byte)LSM303_ADDRESS_MAG, (byte)6);//TODO fix issue where MCU Crashes if only asks for 4 bytes
   
   // Wait around until enough data is available
-  while (Wire.available() < 6);
+  while (Wire.available() < 4);
 
   // Note high before low (different than accel)  
-  xhi = Wire.read();
-  xlo = Wire.read();
-  zhi = Wire.read();
-  zlo = Wire.read();
-  yhi = Wire.read();
-  ylo = Wire.read();
+  //xhi = Wire.read();
+  //xlo = Wire.read();
+  uint8_t zhi = Wire.read();
+  uint8_t zlo = Wire.read();
+  uint8_t yhi = Wire.read();
+  uint8_t ylo = Wire.read();
   
   // Shift values to create properly formed integer (low byte first)
-  magData.x = (xlo | (xhi << 8));
+  //magData.x = (xlo | (xhi << 8));
   magData.y = (ylo | (yhi << 8));
   magData.z = (zlo | (zhi << 8));  
   
