@@ -95,17 +95,17 @@ class Adafruit_LSM303
 	
     typedef struct lsm303AccelData_s
     {
-      float x;
-      float y;
-      float z;
+      int16_t x;
+      //float y;
+      //float z;
     } lsm303AccelData;
 	
 	typedef struct lsm303MagData_s
 	{
-      float x;
-      float y;
-      float z;
-	  float orientation;
+      //float x;
+      int16_t y;
+      int16_t z;
+	  int16_t orientation;
 	} lsm303MagData;
 
     bool begin(void);
