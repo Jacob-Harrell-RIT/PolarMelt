@@ -6,6 +6,7 @@ Adafruit_LSM303 lsm;
 
 volatile int magx, magy, magz;
 volatile int accx, accy, accz;
+int gravity=0;//0 neutral +100 up -100 down
 volatile bool magflg = 0;
 
 void setup() 
@@ -29,18 +30,29 @@ void loop()
 {
   if(magflg) {
     lsm.read();
-    magx = (int)lsm.magData.x;
+    //magx = (int)lsm.magData.x;
     magy = (int)lsm.magData.y;
     magz = (int)lsm.magData.z;
     accx = (int)lsm.accelData.x;
-    accy = (int)lsm.accelData.y;
-    accz = (int)lsm.accelData.z;
-    Serial.print("Mag X: "); Serial.print(magx);     Serial.print(" ");
+    //gravity threshold
+    if(accx>1500){
+      gravity=100;
+    }
+    else if (accx<-1500){
+      gravity=-100;
+    }
+    else{
+      gravity=0;
+    }
+    
+    //accy = (int)lsm.accelData.y;
+    //accz = (int)lsm.accelData.z;
+    //Serial.print("Mag X: "); Serial.print(magx);     Serial.print(" ");
     Serial.print("Y: "); Serial.print(magy);         Serial.print(" ");
-    Serial.print("Z: "); Serial.println(magz);       Serial.print(" ");
-    Serial.print("Accel X: "); Serial.print(accx);     Serial.print(" ");
-    Serial.print("Y: "); Serial.print(accy);         Serial.print(" ");
-    Serial.print("Z: "); Serial.println(accz);       Serial.print(" ");
+    Serial.print("Z: "); Serial.print(magz);       Serial.print(" ");
+    Serial.print("X: "); Serial.println(gravity);     //Serial.print(" ");
+    //Serial.print("Y: "); Serial.print(accy);         Serial.print(" ");
+    //Serial.print("Z: "); Serial.println(accz);       Serial.print(" ");
     digitalWrite(13,LOW);
     magflg = 0;
   } else {
