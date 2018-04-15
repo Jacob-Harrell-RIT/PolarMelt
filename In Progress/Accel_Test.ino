@@ -11,16 +11,12 @@ const int DATAPIN1 = 17;
 const int CLOCKPIN1 = 16;
 // Color Constants
 const int LED_OFF = 0x000000;
-const int LED_ON = 0x000099;
-const int LED_ERR = 0x009900;
-const int LED_STRT = 0x660066;
-const int LED_NEUT = 0x990000;
+const int LED_ON = 0x00FFFF;
+const int LED_ERR = 0xFF0000;
 // Math Constants
 const float ACCEL_RADIUS = 2.5; //cm
 const float ADC_TO_THETA = 7.13377835; // Magic Number to convert from unitless ADC to unitless rotation
 const int DT = 1.25; //ms
-// Translation Profile
-
 
 // Reciever
 SBUS x8r(Serial2);
@@ -50,8 +46,6 @@ uint16_t lostFrames = 0;
 int count=0;
 int failsafe=0;
 
-IntervalTimer accTimer;
-
 void setup() {
   // Begin the serial output
   Serial.begin(115200);
@@ -72,10 +66,6 @@ void setup() {
   // Turn all LEDs off ASAP
   strip.show();
   strip2.show();
-  // Then turn them into the LED_NEUT color
-  lightLEDs(LED_STRT);
-  // Start the timer
-  accTimer.begin(readAccel,1250);
 }
 
 void lightLEDs(int color) {
@@ -123,11 +113,6 @@ void loop() {
       //Serial.print("sensor0 = ");
       //Serial.println(channels[2]);
       //out=1000+map(channels[2],minthrottle,maxthrottle,430,1000);
-      // Check if the throttle is on or not
-      if(channels[2] < minthrottle) {
-        // If not, light the LEDs to a neutral color (to show that a connection exists, but no movement is happening
-        lightLEDs(LED_NEUT);
-      } // throttle on?
       //note that the motors spin in opposite directions in this example
       out=map(channels[2],minthrottle,maxthrottle,1430,2000);
       //out1=1000+map(channels[2],minthrottle,maxthrottle,430,1000);
@@ -140,15 +125,11 @@ void loop() {
       myservo1.writeMicroseconds(out1);
       // Check the heading to light the LEDs
       if(heading < 1360 && heading > 683) {
-        Serial.print("Heading is Forward at: ");
-        Serial.println(heading);
         if (!forward_flg) {
           lightLEDs(LED_ON);
           forward_flg = 1;
         } // forward_flg
       } else {
-        Serial.print("Heading is NOT Forward at: ");
-        Serial.println(heading);
         if (forward_flg) {
           lightLEDs(LED_OFF);
           forward_flg = 0;

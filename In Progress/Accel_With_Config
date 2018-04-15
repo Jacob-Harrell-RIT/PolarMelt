@@ -9,18 +9,22 @@ const int DATAPIN = 4;
 const int CLOCKPIN = 5;
 const int DATAPIN1 = 17;
 const int CLOCKPIN1 = 16;
+
 // Color Constants
 const int LED_OFF = 0x000000;
 const int LED_ON = 0x000099;
 const int LED_ERR = 0x009900;
 const int LED_STRT = 0x660066;
 const int LED_NEUT = 0x990000;
+const int LED_CONFIG = 0x006666;
+
 // Math Constants
 const float ACCEL_RADIUS = 2.5; //cm
 const float ADC_TO_THETA = 7.13377835; // Magic Number to convert from unitless ADC to unitless rotation
 const int DT = 1.25; //ms
-// Translation Profile
 
+// Translation Profile
+// const int[] THREE_STEP_TRANSLATION = {0.9,0.5,0.1};
 
 // Reciever
 SBUS x8r(Serial2);
@@ -41,8 +45,10 @@ int maxthrottle=1811;
 int minthrottle=172;
 int dacmax=4096;
 int dacmin=0;
+
 Servo myservo; 
 Servo myservo1;
+
 uint16_t channels[16];
 uint8_t failSafe;
 uint16_t lostFrames = 0;
@@ -50,7 +56,20 @@ uint16_t lostFrames = 0;
 int count=0;
 int failsafe=0;
 
+// Interrupt to calculate acceleration
 IntervalTimer accTimer;
+// State Machine
+// 0  = Startup
+// 1  = On but Stationary
+// 2  = On and Spinning
+// -1 = Signal Lost
+// 3  = Config
+short state_machine = 0;
+// Trim
+int shift_trim = 0;
+float radius_trim = 0;
+float magic_trim = 0;
+float time_trim = 0;
 
 void setup() {
   // Begin the serial output
@@ -74,6 +93,7 @@ void setup() {
   strip2.show();
   // Then turn them into the LED_NEUT color
   lightLEDs(LED_STRT);
+  state_machine = 0;
   // Start the timer
   accTimer.begin(readAccel,1250);
 }
@@ -109,6 +129,12 @@ void loop() {
   if(x8r.read(&channels[0], &failSafe, &lostFrames)){
     Serial.println(failsafe);
     if (failSafe){
+      // If we are not yet in the error state
+      if(state_machine != -1) {
+        // Debug by Lights and set the state
+        lightLEDs(LED_ERR);
+        state_machine = -1;
+      }
       //out1=1000+map(channels[2],minthrottle,maxthrottle,430,1000);
       out1=1430;
       out=1430;
@@ -118,42 +144,64 @@ void loop() {
       Serial.println(out);
       Serial.print("2err:");
       Serial.println(out1);
-      lightLEDs(LED_ERR);
-     }else{
-      //Serial.print("sensor0 = ");
-      //Serial.println(channels[2]);
-      //out=1000+map(channels[2],minthrottle,maxthrottle,430,1000);
-      // Check if the throttle is on or not
-      if(channels[2] < minthrottle) {
-        // If not, light the LEDs to a neutral color (to show that a connection exists, but no movement is happening
-        lightLEDs(LED_NEUT);
-      } // throttle on?
-      //note that the motors spin in opposite directions in this example
-      out=map(channels[2],minthrottle,maxthrottle,1430,2000);
-      //out1=1000+map(channels[2],minthrottle,maxthrottle,430,1000);
-      out1=map(channels[2],minthrottle,maxthrottle,1430,2000);//1430,998);
-      Serial.print("1:");
-      Serial.println(out);
-      Serial.print("2:");
-      Serial.println(out1);
-      myservo.writeMicroseconds(out); 
-      myservo1.writeMicroseconds(out1);
-      // Check the heading to light the LEDs
-      if(heading < 1360 && heading > 683) {
-        Serial.print("Heading is Forward at: ");
-        Serial.println(heading);
-        if (!forward_flg) {
-          lightLEDs(LED_ON);
-          forward_flg = 1;
-        } // forward_flg
+    }else{
+      // Normal or Config
+      if(channels[5] == -100) {
+        //Serial.print("sensor0 = ");
+        //Serial.println(channels[2]);
+        //out=1000+map(channels[2],minthrottle,maxthrottle,430,1000);
+        // Check if the throttle is on or not
+        if(state_machine != 1) {
+          // If not, light the LEDs to a neutral color (to show that a connection exists, but no movement is happening
+          lightLEDs(LED_NEUT);
+        } // throttle on?
+        //note that the motors spin in opposite directions in this example
+        out=map(channels[2],minthrottle,maxthrottle,1430,2000);
+        //out1=1000+map(channels[2],minthrottle,maxthrottle,430,1000);
+        out1=map(channels[2],minthrottle,maxthrottle,1430,2000);//1430,998);
+        Serial.print("1:");
+        Serial.println(out);
+        Serial.print("2:");
+        Serial.println(out1);
+        myservo.writeMicroseconds(out); 
+        myservo1.writeMicroseconds(out1);
+        // Check the heading to light the LEDs
+        if(heading < 1360 && heading > 683) {
+          Serial.print("Heading is Forward at: ");
+          Serial.println(heading);
+          if (!forward_flg) {
+           lightLEDs(LED_ON);
+           forward_flg = 1;
+          } // forward_flg
+        } else {
+          Serial.print("Heading is NOT Forward at: ");
+          Serial.println(heading);
+          if (forward_flg) {
+            lightLEDs(LED_OFF);
+            forward_flg = 0;
+          } // forward_flg
+        } // forward?
       } else {
-        Serial.print("Heading is NOT Forward at: ");
-        Serial.println(heading);
-        if (forward_flg) {
-          lightLEDs(LED_OFF);
-          forward_flg = 0;
-        } // forward_flg
-      } // forward?
+        // If we aren't already in config mode
+        if(state_machine != 3) {
+          // Debug through serial and LEDs
+          Serial.println("ENTERING CONFIGURATION MODE.");
+          lightLEDs(LED_CONFIG);
+        } // Already config?
+        // Config POV
+        float shift_tmp = channels[6]; 
+        float radius_tmp = channels[7];
+        float magic_tmp = channels[8];
+        float time_tmp = channels[9];
+        // If the confirm switch is held
+        if(channels[10] > 0) {
+          // Store the temporary trims into the permanent trims
+          shift_trim = shift_tmp;
+          radius_trim = radius_tmp;
+          magic_trim = magic_tmp;
+          time_trim = time_tmp;
+        } // confirm?
+      } // Config?
     } // failsafe?
   } // Signal read?
 } // loop()
